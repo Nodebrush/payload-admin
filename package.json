@@ -4,9 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "predev": "node --experimental-strip-types scripts/copy-assets.ts",
+    "predev": "node --experimental-strip-types scripts/copy-assets.ts && cross-env NODE_OPTIONS=--no-deprecation payload generate:importmap",
     "dev": "cross-env NODE_OPTIONS=--no-deprecation next dev",
-    "prebuild": "node --experimental-strip-types scripts/copy-assets.ts",
+    "prebuild": "node --experimental-strip-types scripts/copy-assets.ts && cross-env NODE_OPTIONS=--no-deprecation payload generate:importmap",
     "build": "cross-env NODE_OPTIONS=\"--no-deprecation --max-old-space-size=8000\" next build",
     "start": "cross-env NODE_OPTIONS=--no-deprecation next start",
     "generate:types": "cross-env NODE_OPTIONS=--no-deprecation payload generate:types",

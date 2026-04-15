@@ -14,3 +14,5 @@ out/
 .vercel/
 
 public/
+
+src/app/(payload)/admin/importMap.js
