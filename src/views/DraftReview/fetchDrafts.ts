@@ -1,13 +1,11 @@
 import 'server-only'
 import type { Payload } from 'payload'
 
-// ─── Types ───────────────────────────────────────────────────────────────────
-
 export interface FieldDiff {
   path: string
   old: string
   new: string
-  locale?: string // 'EN' | 'SV' — present only when the change is locale-specific
+  locale?: string
 }
 
 export interface ItemDiff {
@@ -38,32 +36,10 @@ export interface PendingDraft {
   updatedAt: string
   editUrl: string
   compareUrl: string
-  isNew: boolean // true = document has never been published
+  isNew: boolean
   diff: DocumentDiff
 }
 
-// ─── Constants ───────────────────────────────────────────────────────────────
-
-const COLLECTIONS = ['pages', 'blog', 'projects', 'menus'] as const
-
-const GLOBALS = ['navbar', 'footer', 'company-info', 'blog-settings', 'contact-form'] as const
-
-const COLLECTION_LABELS: Record<string, string> = {
-  pages: 'Pages',
-  blog: 'Blog',
-  projects: 'Projects',
-  menus: 'Menus',
-}
-
-const GLOBAL_LABELS: Record<string, string> = {
-  navbar: 'Navbar',
-  footer: 'Footer',
-  'company-info': 'Company Info',
-  'blog-settings': 'Blog Settings',
-  'contact-form': 'Contact Form',
-}
-
-// Fields that carry no meaningful content for diffing
 const SKIP_FIELDS = new Set([
   'id',
   '_status',
@@ -85,9 +61,7 @@ const SKIP_FIELDS = new Set([
   'salt',
 ])
 
-const LOCALES = ['en', 'sv'] as const
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+const SYSTEM_SLUGS = new Set(['users', 'media', 'payload-preferences', 'payload-migrations'])
 
 function isLexical(val: unknown): val is { root: unknown } {
   return typeof val === 'object' && val !== null && !Array.isArray(val) && 'root' in val
@@ -113,35 +87,35 @@ function valueToString(val: unknown): string {
   return ''
 }
 
-/** Resolves a value that might be a locale object { en, sv } or a plain string. */
-function resolveString(val: unknown): string {
+function resolveString(val: unknown, localeCodes: string[]): string {
   if (typeof val === 'string') return val
   if (typeof val === 'object' && val !== null && !Array.isArray(val)) {
     const obj = val as Record<string, unknown>
-    // Locale object: { en: '...', sv: '...' }
-    if ('en' in obj || 'sv' in obj) return String(obj.en ?? obj.sv ?? '')
+    for (const code of localeCodes) {
+      if (code in obj && typeof obj[code] === 'string') return obj[code] as string
+    }
   }
   return ''
 }
 
-function getItemLabel(item: Record<string, unknown>): string {
+function getItemLabel(item: Record<string, unknown>, localeCodes: string[]): string {
   return (
-    resolveString(item.sectionHeading) ||
-    resolveString(item.heading) ||
-    resolveString(item.label) ||
-    resolveString(item.name) ||
-    resolveString(item.text) ||
-    resolveString(item.title) ||
+    resolveString(item.sectionHeading, localeCodes) ||
+    resolveString(item.heading, localeCodes) ||
+    resolveString(item.label, localeCodes) ||
+    resolveString(item.name, localeCodes) ||
+    resolveString(item.text, localeCodes) ||
+    resolveString(item.title, localeCodes) ||
     String(item.blockType ?? 'Item')
   )
 }
 
-function getDocumentTitle(collection: string, doc: Record<string, unknown>): string {
-  if (collection === 'menus') return resolveString(doc?.name) || 'Unnamed menu'
+function getDocumentTitle(collection: string, doc: Record<string, unknown>, localeCodes: string[]): string {
+  if (collection === 'menus') return resolveString(doc?.name, localeCodes) || 'Unnamed menu'
   return (
-    resolveString(doc?.title) ||
-    resolveString(doc?.name) ||
-    resolveString(doc?.metaTitle) ||
+    resolveString(doc?.title, localeCodes) ||
+    resolveString(doc?.name, localeCodes) ||
+    resolveString(doc?.metaTitle, localeCodes) ||
     'Untitled'
   )
 }
@@ -153,12 +127,6 @@ function buildSummary(fieldDiffs: FieldDiff[], itemDiffs: ItemDiff[]): string {
   return [...new Set(parts)].join(', ')
 }
 
-// ─── Per-locale diff computation ──────────────────────────────────────────────
-
-/**
- * Recursively compares scalar and nested fields between two objects.
- * Does NOT handle locale objects — call once per locale with plain data.
- */
 function compareScalarFields(
   pub: Record<string, unknown>,
   draft: Record<string, unknown>,
@@ -203,6 +171,7 @@ function compareIdArrays(
   pubArr: Record<string, unknown>[],
   draftArr: Record<string, unknown>[],
   arrayKey: string,
+  localeCodes: string[],
 ): ItemDiff[] {
   const diffs: ItemDiff[] = []
   const toObj = (i: unknown): i is Record<string, unknown> => typeof i === 'object' && i !== null
@@ -213,17 +182,17 @@ function compareIdArrays(
 
   for (const [id, item] of pubById) {
     if (!draftById.has(id)) {
-      diffs.push({ status: 'removed', itemId: id, arrayKey, label: getItemLabel(item), blockType: item.blockType as string | undefined, fieldDiffs: [] })
+      diffs.push({ status: 'removed', itemId: id, arrayKey, label: getItemLabel(item, localeCodes), blockType: item.blockType as string | undefined, fieldDiffs: [] })
     }
   }
   for (const [id, draftItem] of draftById) {
     const pubItem = pubById.get(id)
     if (!pubItem) {
-      diffs.push({ status: 'added', itemId: id, arrayKey, label: getItemLabel(draftItem), blockType: draftItem.blockType as string | undefined, fieldDiffs: [] })
+      diffs.push({ status: 'added', itemId: id, arrayKey, label: getItemLabel(draftItem, localeCodes), blockType: draftItem.blockType as string | undefined, fieldDiffs: [] })
     } else {
       const fieldDiffs = compareScalarFields(pubItem, draftItem, '')
       if (fieldDiffs.length > 0) {
-        diffs.push({ status: 'changed', itemId: id, arrayKey, label: getItemLabel(draftItem), blockType: draftItem.blockType as string | undefined, fieldDiffs })
+        diffs.push({ status: 'changed', itemId: id, arrayKey, label: getItemLabel(draftItem, localeCodes), blockType: draftItem.blockType as string | undefined, fieldDiffs })
       }
     }
   }
@@ -231,10 +200,10 @@ function compareIdArrays(
   return diffs
 }
 
-/** Computes a diff for a single locale's data. */
 export function computeDiff(
   published: Record<string, unknown>,
   draft: Record<string, unknown>,
+  localeCodes: string[],
 ): DocumentDiff {
   const fieldDiffs: FieldDiff[] = []
   const itemDiffs: ItemDiff[] = []
@@ -250,8 +219,7 @@ export function computeDiff(
       const draftArr = Array.isArray(draftVal) ? (draftVal as Record<string, unknown>[]) : []
       const toObj = (i: unknown): i is Record<string, unknown> => typeof i === 'object' && i !== null
       const hasIds = pubArr.some((i) => toObj(i) && 'id' in i) || draftArr.some((i) => toObj(i) && 'id' in i)
-      if (hasIds) itemDiffs.push(...compareIdArrays(pubArr, draftArr, key))
-      // Primitive arrays (tag IDs etc.) — skip, not text content
+      if (hasIds) itemDiffs.push(...compareIdArrays(pubArr, draftArr, key, localeCodes))
       continue
     }
 
@@ -280,76 +248,74 @@ export function computeDiff(
   return { fieldDiffs, itemDiffs, hasChanges, changedFieldsSummary: buildSummary(fieldDiffs, itemDiffs) }
 }
 
-// ─── Merge diffs from two locales ────────────────────────────────────────────
+function mergeAllLocaleDiffs(localeDiffs: Array<{ code: string; diff: DocumentDiff }>): DocumentDiff {
+  if (localeDiffs.length === 0) return { fieldDiffs: [], itemDiffs: [], hasChanges: false, changedFieldsSummary: '' }
 
-/**
- * Merges EN and SV diffs into one DocumentDiff.
- * Fields changed identically in both locales → shown once (no locale tag, non-localized field).
- * Fields changed differently per locale → shown with EN / SV badge.
- * Sections added/removed → deduplicated (structural, not locale-specific).
- * Sections changed → field diffs merged with locale tags.
- */
-function mergeDiffs(enDiff: DocumentDiff, svDiff: DocumentDiff): DocumentDiff {
-  // ── Top-level field diffs ────────────────────────────────────────────────
   const fieldDiffs: FieldDiff[] = []
-  const enFieldsByPath = new Map(enDiff.fieldDiffs.map((d) => [d.path, d]))
-  const svFieldsByPath = new Map(svDiff.fieldDiffs.map((d) => [d.path, d]))
-  const allFieldPaths = new Set([...enFieldsByPath.keys(), ...svFieldsByPath.keys()])
+  const allFieldPaths = new Set(localeDiffs.flatMap(({ diff }) => diff.fieldDiffs.map((d) => d.path)))
 
   for (const path of allFieldPaths) {
-    const enF = enFieldsByPath.get(path)
-    const svF = svFieldsByPath.get(path)
-    if (enF && svF && enF.old === svF.old && enF.new === svF.new) {
-      // Identical change in both locales → non-localized field, no tag
-      fieldDiffs.push(enF)
+    const perLocale = localeDiffs
+      .map(({ code, diff }) => ({ code, field: diff.fieldDiffs.find((d) => d.path === path) }))
+      .filter(({ field }) => field !== undefined) as Array<{ code: string; field: FieldDiff }>
+
+    const allSame = perLocale.every(
+      ({ field }) => field.old === perLocale[0].field.old && field.new === perLocale[0].field.new
+    )
+
+    if (allSame) {
+      fieldDiffs.push(perLocale[0].field)
     } else {
-      if (enF) fieldDiffs.push({ ...enF, locale: 'EN' })
-      if (svF) fieldDiffs.push({ ...svF, locale: 'SV' })
+      for (const { code, field } of perLocale) {
+        fieldDiffs.push({ ...field, locale: code.toUpperCase() })
+      }
     }
   }
 
-  // ── Item diffs (sections, menu items, etc.) ──────────────────────────────
   const itemDiffs: ItemDiff[] = []
-  const enItemsById = new Map(enDiff.itemDiffs.map((d) => [d.itemId, d]))
-  const svItemsById = new Map(svDiff.itemDiffs.map((d) => [d.itemId, d]))
-  const allItemIds = new Set([...enItemsById.keys(), ...svItemsById.keys()])
+  const allItemIds = new Set(localeDiffs.flatMap(({ diff }) => diff.itemDiffs.map((d) => d.itemId)))
 
   for (const id of allItemIds) {
-    const enItem = enItemsById.get(id)
-    const svItem = svItemsById.get(id)
+    const perLocale = localeDiffs
+      .map(({ code, diff }) => ({ code, item: diff.itemDiffs.find((d) => d.itemId === id) }))
+      .filter(({ item }) => item !== undefined) as Array<{ code: string; item: ItemDiff }>
 
-    // Added / removed: structural change, same in both locales → deduplicate
-    if (enItem?.status !== 'changed' || svItem?.status !== 'changed') {
-      if (enItem && svItem && enItem.status === svItem.status) {
-        // Both agree (both added or both removed) — show once
-        itemDiffs.push(enItem)
+    if (perLocale.length === 0) continue
+
+    const hasStructural = perLocale.some(({ item }) => item.status !== 'changed')
+    if (hasStructural) {
+      const allAgree = perLocale.every(({ item }) => item.status === perLocale[0].item.status)
+      if (allAgree) {
+        itemDiffs.push(perLocale[0].item)
       } else {
-        // Only in one locale (unusual), or mixed statuses — show both
-        if (enItem) itemDiffs.push(enItem)
-        if (svItem && svItem !== enItem) itemDiffs.push(svItem)
+        for (const { item } of perLocale) itemDiffs.push(item)
       }
       continue
     }
 
-    // Both changed → merge their field diffs with locale tags
+    const allFieldPathsInItem = new Set(perLocale.flatMap(({ item }) => item.fieldDiffs.map((d) => d.path)))
     const mergedFieldDiffs: FieldDiff[] = []
-    const enFByPath = new Map(enItem.fieldDiffs.map((d) => [d.path, d]))
-    const svFByPath = new Map(svItem.fieldDiffs.map((d) => [d.path, d]))
-    const allPaths = new Set([...enFByPath.keys(), ...svFByPath.keys()])
 
-    for (const path of allPaths) {
-      const enF = enFByPath.get(path)
-      const svF = svFByPath.get(path)
-      if (enF && svF && enF.old === svF.old && enF.new === svF.new) {
-        mergedFieldDiffs.push(enF) // Same in both → no locale tag
+    for (const path of allFieldPathsInItem) {
+      const perLocaleFields = perLocale
+        .map(({ code, item }) => ({ code, field: item.fieldDiffs.find((d) => d.path === path) }))
+        .filter(({ field }) => field !== undefined) as Array<{ code: string; field: FieldDiff }>
+
+      const allSame = perLocaleFields.every(
+        ({ field }) => field.old === perLocaleFields[0].field.old && field.new === perLocaleFields[0].field.new
+      )
+
+      if (allSame) {
+        mergedFieldDiffs.push(perLocaleFields[0].field)
       } else {
-        if (enF) mergedFieldDiffs.push({ ...enF, locale: 'EN' })
-        if (svF) mergedFieldDiffs.push({ ...svF, locale: 'SV' })
+        for (const { code, field } of perLocaleFields) {
+          mergedFieldDiffs.push({ ...field, locale: code.toUpperCase() })
+        }
       }
     }
 
     if (mergedFieldDiffs.length > 0) {
-      itemDiffs.push({ ...enItem, fieldDiffs: mergedFieldDiffs })
+      itemDiffs.push({ ...perLocale[0].item, fieldDiffs: mergedFieldDiffs })
     }
   }
 
@@ -357,80 +323,95 @@ function mergeDiffs(enDiff: DocumentDiff, svDiff: DocumentDiff): DocumentDiff {
   return { fieldDiffs, itemDiffs, hasChanges, changedFieldsSummary: buildSummary(fieldDiffs, itemDiffs) }
 }
 
-// ─── Per-document fetch helpers ───────────────────────────────────────────────
-
 async function fetchDocumentDiff(
   payload: Payload,
   collection: string,
   parentId: string,
+  localeCodes: string[],
 ): Promise<{ diff: DocumentDiff; isNew: boolean }> {
-  // Fetch both locales for draft AND published in parallel — 4 calls, all at once.
-  // findByID(draft:true) returns the CURRENT accumulated draft state (all saves merged),
-  // not just the last version snapshot. This ensures all changes from all sessions appear.
-  const [draftEnR, draftSvR, pubEnR, pubSvR] = await Promise.allSettled([
-    (payload.findByID as any)({ collection, id: parentId, draft: true,  locale: 'en', depth: 0, overrideAccess: true }),
-    (payload.findByID as any)({ collection, id: parentId, draft: true,  locale: 'sv', depth: 0, overrideAccess: true }),
-    (payload.findByID as any)({ collection, id: parentId, draft: false, locale: 'en', depth: 0, overrideAccess: true }),
-    (payload.findByID as any)({ collection, id: parentId, draft: false, locale: 'sv', depth: 0, overrideAccess: true }),
+  const fetches = localeCodes.flatMap((locale) => [
+    (payload.findByID as any)({ collection, id: parentId, draft: true,  locale, depth: 0, overrideAccess: true }),
+    (payload.findByID as any)({ collection, id: parentId, draft: false, locale, depth: 0, overrideAccess: true }),
   ])
+  const results = await Promise.allSettled(fetches)
 
-  const draftEn  = draftEnR.status === 'fulfilled' ? draftEnR.value as Record<string, unknown> : {}
-  const draftSv  = draftSvR.status === 'fulfilled' ? draftSvR.value as Record<string, unknown> : {}
-  const pubEnRaw = pubEnR.status   === 'fulfilled' ? pubEnR.value   as Record<string, unknown> : {}
-  const pubSvRaw = pubSvR.status   === 'fulfilled' ? pubSvR.value   as Record<string, unknown> : {}
-
-  // A document is "new" if Payload never published it. In that case, findByID(draft:false)
-  // either throws (rejected) or returns the document with _status:'draft' as a fallback.
-  // Use {} as the published baseline so all content shows as new rather than unchanged.
+  const firstPub = results[1]
   const isNew =
-    pubEnR.status === 'rejected' ||
-    (pubEnRaw._status !== undefined && pubEnRaw._status !== 'published')
+    firstPub.status === 'rejected' ||
+    (firstPub.status === 'fulfilled' && (firstPub.value as Record<string, unknown>)._status !== 'published')
 
-  const pubEn = isNew ? {} : pubEnRaw
-  const pubSv = isNew ? {} : pubSvRaw
+  const localeDiffs: Array<{ code: string; diff: DocumentDiff }> = localeCodes.map((code, i) => {
+    const draftResult = results[i * 2]
+    const pubResult   = results[i * 2 + 1]
+    const draft = draftResult.status === 'fulfilled' ? draftResult.value as Record<string, unknown> : {}
+    const pub   = isNew ? {} : (pubResult.status === 'fulfilled' ? pubResult.value as Record<string, unknown> : {})
+    return { code, diff: computeDiff(pub, draft, localeCodes) }
+  })
 
-  const diff = mergeDiffs(computeDiff(pubEn, draftEn), computeDiff(pubSv, draftSv))
-  return { diff, isNew }
+  return { diff: mergeAllLocaleDiffs(localeDiffs), isNew }
 }
 
 async function fetchGlobalDiff(
   payload: Payload,
   slug: string,
+  localeCodes: string[],
 ): Promise<{ diff: DocumentDiff; isNew: boolean }> {
-  const [draftEnR, draftSvR, pubEnR, pubSvR] = await Promise.allSettled([
-    (payload.findGlobal as any)({ slug, draft: true,  locale: 'en', depth: 0, overrideAccess: true }),
-    (payload.findGlobal as any)({ slug, draft: true,  locale: 'sv', depth: 0, overrideAccess: true }),
-    (payload.findGlobal as any)({ slug, draft: false, locale: 'en', depth: 0, overrideAccess: true }),
-    (payload.findGlobal as any)({ slug, draft: false, locale: 'sv', depth: 0, overrideAccess: true }),
+  const fetches = localeCodes.flatMap((locale) => [
+    (payload.findGlobal as any)({ slug, draft: true,  locale, depth: 0, overrideAccess: true }),
+    (payload.findGlobal as any)({ slug, draft: false, locale, depth: 0, overrideAccess: true }),
   ])
+  const results = await Promise.allSettled(fetches)
 
-  const draftEn  = draftEnR.status === 'fulfilled' ? draftEnR.value as Record<string, unknown> : {}
-  const draftSv  = draftSvR.status === 'fulfilled' ? draftSvR.value as Record<string, unknown> : {}
-  const pubEnRaw = pubEnR.status   === 'fulfilled' ? pubEnR.value   as Record<string, unknown> : {}
-  const pubSvRaw = pubSvR.status   === 'fulfilled' ? pubSvR.value   as Record<string, unknown> : {}
-
+  const firstPub = results[1]
   const isNew =
-    pubEnR.status === 'rejected' ||
-    (pubEnRaw._status !== undefined && pubEnRaw._status !== 'published')
+    firstPub.status === 'rejected' ||
+    (firstPub.status === 'fulfilled' && (firstPub.value as Record<string, unknown>)._status !== 'published')
 
-  const pubEn = isNew ? {} : pubEnRaw
-  const pubSv = isNew ? {} : pubSvRaw
+  const localeDiffs: Array<{ code: string; diff: DocumentDiff }> = localeCodes.map((code, i) => {
+    const draftResult = results[i * 2]
+    const pubResult   = results[i * 2 + 1]
+    const draft = draftResult.status === 'fulfilled' ? draftResult.value as Record<string, unknown> : {}
+    const pub   = isNew ? {} : (pubResult.status === 'fulfilled' ? pubResult.value as Record<string, unknown> : {})
+    return { code, diff: computeDiff(pub, draft, localeCodes) }
+  })
 
-  const diff = mergeDiffs(computeDiff(pubEn, draftEn), computeDiff(pubSv, draftSv))
-  return { diff, isNew }
+  return { diff: mergeAllLocaleDiffs(localeDiffs), isNew }
 }
-
-// ─── Main fetch function ──────────────────────────────────────────────────────
 
 export async function fetchAllPendingDrafts(payload: Payload): Promise<PendingDraft[]> {
   const pending: PendingDraft[] = []
 
-  // ── Collections ──────────────────────────────────────────────────────────
+  const localeConfig = payload.config.localization !== false ? payload.config.localization : undefined
+  const localeCodes: string[] = localeConfig && localeConfig.locales.length > 0
+    ? localeConfig.locales.map((l) => l.code)
+    : ['en']
+
+  const defaultLocale = localeConfig?.defaultLocale ?? localeCodes[0]
+
+  const COLLECTIONS = payload.config.collections
+    .filter((c) => c.versions != null && !SYSTEM_SLUGS.has(c.slug))
+    .map((c) => c.slug)
+
+  const COLLECTION_LABELS: Record<string, string> = Object.fromEntries(
+    payload.config.collections.map((c) => [
+      c.slug,
+      typeof c.labels?.singular === 'string' ? c.labels.singular : c.slug,
+    ])
+  )
+
+  const GLOBALS = payload.config.globals
+    .filter((g) => g.versions != null)
+    .map((g) => g.slug)
+
+  const GLOBAL_LABELS: Record<string, string> = Object.fromEntries(
+    payload.config.globals.map((g) => [
+      g.slug,
+      typeof g.label === 'string' ? g.label : g.slug,
+    ])
+  )
 
   for (const collection of COLLECTIONS) {
     try {
-      // Get all recent versions to find the true latest per document.
-      // No status filter — we check _status ourselves after deduplication.
       const versions = await payload.findVersions({
         collection,
         sort: '-updatedAt',
@@ -439,7 +420,6 @@ export async function fetchAllPendingDrafts(payload: Payload): Promise<PendingDr
         overrideAccess: true,
       })
 
-      // Collect pending parent IDs (latest version per doc must be a draft)
       const pendingParents: Array<{ parentId: string; versionId: string; updatedAt: string }> = []
       const seenParents = new Set<string>()
 
@@ -452,17 +432,15 @@ export async function fetchAllPendingDrafts(payload: Payload): Promise<PendingDr
         pendingParents.push({ parentId, versionId: String(v.id), updatedAt: String(v.updatedAt) })
       }
 
-      // Fetch diffs for all pending documents in parallel
       const results = await Promise.allSettled(
         pendingParents.map(async ({ parentId, versionId, updatedAt }) => {
-          const { diff, isNew } = await fetchDocumentDiff(payload, collection, parentId)
+          const { diff, isNew } = await fetchDocumentDiff(payload, collection, parentId, localeCodes)
           if (!diff.hasChanges) return null
 
-          // Fetch title in EN for display
           let title = 'Untitled'
           try {
-            const doc = await (payload.findByID as any)({ collection, id: parentId, draft: true, locale: 'en', depth: 0, overrideAccess: true })
-            title = getDocumentTitle(collection, doc as Record<string, unknown>)
+            const doc = await (payload.findByID as any)({ collection, id: parentId, draft: true, locale: defaultLocale, depth: 0, overrideAccess: true })
+            title = getDocumentTitle(collection, doc as Record<string, unknown>, localeCodes)
           } catch { /* use default */ }
 
           return {
@@ -489,8 +467,6 @@ export async function fetchAllPendingDrafts(payload: Payload): Promise<PendingDr
     }
   }
 
-  // ── Globals ───────────────────────────────────────────────────────────────
-
   await Promise.allSettled(
     GLOBALS.map(async (slug) => {
       try {
@@ -507,7 +483,7 @@ export async function fetchAllPendingDrafts(payload: Payload): Promise<PendingDr
         const latestData = v.version as Record<string, unknown>
         if (latestData._status !== 'draft') return
 
-        const { diff, isNew } = await fetchGlobalDiff(payload, slug)
+        const { diff, isNew } = await fetchGlobalDiff(payload, slug, localeCodes)
         if (!diff.hasChanges) return
 
         pending.push({
