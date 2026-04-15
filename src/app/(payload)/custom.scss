@@ -1,0 +1,14 @@
+.blocks-drawer__default-image img, .blocks-drawer__default-image svg {
+    object-fit: contain;
+}
+
+.thumbnail-card {
+    padding: 0;
+    transition: transform 0.3s ease;
+    border: none;
+}
+
+.thumbnail-card--has-on-click:hover, .thumbnail-card--has-on-click:focus, .thumbnail-card--has-on-click:active {
+    border: none;
+    transform: translateY(-2px) scale(1.01);
+}
