@@ -1,14 +1,17 @@
 import 'server-only'
 import type { Payload } from 'payload'
+import { lexicalToMarkdown } from './lexicalMarkdown'
 
 export interface ContentField {
   path: string
-  values: Record<string, string> // locale code -> extracted text
+  values: Record<string, string> // locale code -> extracted text (plain, for display)
   isMissing: boolean  // red: translation gap or required+empty
   isWarning: boolean  // yellow: equal content across locales, or missing meta image
   warningNote?: string // short explanation for yellow rows
   singleValue?: string // for non-localized JSON fields like localizedPaths — render as single cell
   isLocalized: boolean // true only when extracted from a { en: ..., sv: ... } locale object
+  fieldType: 'text' | 'richText'
+  editValues?: Record<string, string> // markdown representation for richText fields
 }
 
 export interface ContentDocument {
@@ -52,7 +55,8 @@ const SKIP_FIELDS = new Set([
   'populatedAuthors',
   'hash',
   'salt',
-  'url',
+  // 'url' intentionally NOT here — cta.url and nav urls are real content fields.
+  // Media collection is excluded via SYSTEM_SLUGS; depth:0 prevents media object expansion.
   'thumbnailURL',
   'usageCount',
   'usedIn',
@@ -154,19 +158,28 @@ function extractFields(
     if (isLocaleObject(value, localeCodes)) {
       const obj = value as Record<string, unknown>
       const values: Record<string, string> = {}
+      const editValues: Record<string, string> = {}
       let hasContent = false
+      let hasRichText = false
       for (const code of localeCodes) {
         const localeVal = obj[code]
         if (typeof localeVal === 'number') continue
-        const str = isLexical(localeVal)
-          ? lexicalToText(localeVal)
-          : typeof localeVal === 'string'
-          ? localeVal
-          : ''
-        values[code] = str
-        if (str) hasContent = true
+        if (isLexical(localeVal)) {
+          values[code] = lexicalToText(localeVal)
+          editValues[code] = lexicalToMarkdown(localeVal)
+          hasRichText = true
+        } else {
+          const str = typeof localeVal === 'string' ? localeVal : ''
+          values[code] = str
+          editValues[code] = str
+        }
+        if (values[code]) hasContent = true
       }
-      if (hasContent) fields.push({ path, values, isMissing: false, isWarning: false, isLocalized: true })
+      if (hasContent) fields.push({
+        path, values, isMissing: false, isWarning: false, isLocalized: true,
+        fieldType: hasRichText ? 'richText' : 'text',
+        editValues: hasRichText ? editValues : undefined,
+      })
       return
     }
 
@@ -175,7 +188,7 @@ function extractFields(
       if (str) {
         const values: Record<string, string> = {}
         for (const code of localeCodes) values[code] = str
-        fields.push({ path, values, isMissing: false, isWarning: false, isLocalized: false })
+        fields.push({ path, values, isMissing: false, isWarning: false, isLocalized: false, fieldType: 'richText', editValues: undefined })
       }
       return
     }
@@ -191,7 +204,7 @@ function extractFields(
   if (typeof value === 'string' && value) {
     const values: Record<string, string> = {}
     for (const code of localeCodes) values[code] = value
-    fields.push({ path, values, isMissing: false, isWarning: false, isLocalized: false })
+    fields.push({ path, values, isMissing: false, isWarning: false, isLocalized: false, fieldType: 'text' })
   }
 }
 
@@ -322,7 +335,7 @@ function applyMissingDetection(
         } else {
           for (const code of localeCodes) values[code] = ''
         }
-        fields.push({ path, values, isMissing: true, isWarning: false, isLocalized: localized })
+        fields.push({ path, values, isMissing: true, isWarning: false, isLocalized: localized, fieldType: fieldType === 'richText' ? 'richText' : 'text' })
         extractedByPath.set(path, fields[fields.length - 1])
       }
     }
@@ -345,7 +358,7 @@ function applyEqualContentWarning(fields: ContentField[], localeCodes: string[])
     const allEqual = vals.every((v) => v === vals[0])
     if (allFilled && allEqual) {
       field.isWarning = true
-      field.warningNote = 'Equal content across locales'
+      // No warningNote — the yellow row colour is sufficient signal
     }
   }
 }
@@ -366,7 +379,7 @@ function applyMetaImageWarning(
     for (const code of localeCodes) values[code] = ''
     const existingIdx = fields.findIndex((f) => f.path === 'metaImage')
     if (existingIdx === -1) {
-      fields.push({ path: 'metaImage', values, isMissing: false, isWarning: true, warningNote: 'No meta image set', isLocalized: false })
+      fields.push({ path: 'metaImage', values, isMissing: false, isWarning: true, warningNote: 'No meta image set', isLocalized: false, fieldType: 'text' })
     } else {
       fields[existingIdx].isWarning = true
       fields[existingIdx].warningNote = 'No meta image set'
@@ -405,6 +418,7 @@ function checkLocalizedPaths(
     isMissing: hasMissing,
     isWarning: false,
     isLocalized: false,
+    fieldType: 'text',
   })
 }
 

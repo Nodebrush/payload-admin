@@ -1,8 +1,10 @@
 'use client'
 
 import React, { useMemo, useState, useTransition } from 'react'
+import { useRouter } from 'next/navigation'
 import type { ContentDocument, ReviewNote } from './fetchContent'
-import { markDocumentReviewed, unmarkDocumentReviewed } from './actions'
+import { markDocumentReviewed, unmarkDocumentReviewed, saveDocumentEdits } from './actions'
+import type { FieldEdit } from './actions'
 
 type Props = {
   documents: ContentDocument[]
@@ -87,6 +89,13 @@ function DocumentCard({
   reviewStatus,
   onToggleReviewed,
   isPending,
+  isEditing,
+  currentEdits,
+  onEditChange,
+  onSave,
+  onCancelEdit,
+  onStartEdit,
+  isSaving,
 }: {
   doc: ContentDocument
   localeA: string
@@ -97,12 +106,24 @@ function DocumentCard({
   reviewStatus: ReviewStatus
   onToggleReviewed: (doc: ContentDocument) => void
   isPending: boolean
+  isEditing: boolean
+  currentEdits: Record<string, string>
+  onEditChange: (editKey: string, value: string) => void
+  onSave: () => void
+  onCancelEdit: () => void
+  onStartEdit: () => void
+  isSaving: boolean
 }) {
   const docKey = doc.docKey
   const collectionLabel =
     doc.type === 'collection'
       ? doc.collectionLabel ?? doc.collection
       : `Global: ${doc.globalLabel ?? doc.globalSlug}`
+
+  // Editing scope: if any fields are marked for this doc, only those are editable in edit mode
+  const docHasMarked = doc.fields.some((f) => markedFields.has(makeFieldKey(docKey, f.path)))
+  const fieldIsEditable = (fieldPath: string) =>
+    isEditing && !docHasMarked || (isEditing && markedFields.has(makeFieldKey(docKey, fieldPath)))
 
   const visibleFields = doc.fields.filter((f) => {
     if (showMode === 'missing') return f.isMissing
@@ -216,39 +237,89 @@ function DocumentCard({
           </h3>
         </div>
         <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexShrink: 0 }}>
-          <button
-            type="button"
-            disabled={isPending}
-            onClick={() => onToggleReviewed(doc)}
-            style={{
-              fontSize: '12px',
-              color: reviewStatus === 'reviewed' ? '#4ade80' : 'var(--theme-elevation-500)',
-              background: 'transparent',
-              border: `1px solid ${reviewStatus === 'reviewed' ? 'rgba(74,222,128,0.4)' : 'var(--theme-elevation-200)'}`,
-              borderRadius: '3px',
-              padding: '4px 8px',
-              cursor: isPending ? 'not-allowed' : 'pointer',
-              opacity: isPending ? 0.5 : 1,
-              transition: 'color 0.15s, border-color 0.15s',
-            }}
-          >
-            {reviewStatus === 'reviewed' ? '✓ Reviewed' : 'Mark Reviewed'}
-          </button>
-          <a
-            href={doc.editUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{
-              fontSize: '12px',
-              color: 'var(--theme-elevation-500)',
-              textDecoration: 'none',
-              padding: '4px 8px',
-              border: '1px solid var(--theme-elevation-200)',
-              borderRadius: '3px',
-            }}
-          >
-            Edit ↗
-          </a>
+          {isEditing ? (
+            <>
+              <button
+                type="button"
+                disabled={isSaving}
+                onClick={onSave}
+                style={{
+                  fontSize: '12px',
+                  color: isSaving ? 'var(--theme-elevation-400)' : '#4ade80',
+                  background: 'transparent',
+                  border: `1px solid ${isSaving ? 'var(--theme-elevation-200)' : 'rgba(74,222,128,0.4)'}`,
+                  borderRadius: '3px',
+                  padding: '4px 10px',
+                  cursor: isSaving ? 'not-allowed' : 'pointer',
+                  opacity: isSaving ? 0.6 : 1,
+                }}
+              >
+                {isSaving ? 'Saving…' : '✓ Save Draft'}
+              </button>
+              <button
+                type="button"
+                disabled={isSaving}
+                onClick={onCancelEdit}
+                style={{
+                  ...selectStyle,
+                  fontSize: '12px',
+                  opacity: isSaving ? 0.4 : 1,
+                  cursor: isSaving ? 'not-allowed' : 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                disabled={isPending}
+                onClick={() => onToggleReviewed(doc)}
+                style={{
+                  fontSize: '12px',
+                  color: reviewStatus === 'reviewed' ? '#4ade80' : 'var(--theme-elevation-500)',
+                  background: 'transparent',
+                  border: `1px solid ${reviewStatus === 'reviewed' ? 'rgba(74,222,128,0.4)' : 'var(--theme-elevation-200)'}`,
+                  borderRadius: '3px',
+                  padding: '4px 8px',
+                  cursor: isPending ? 'not-allowed' : 'pointer',
+                  opacity: isPending ? 0.5 : 1,
+                  transition: 'color 0.15s, border-color 0.15s',
+                }}
+              >
+                {reviewStatus === 'reviewed' ? '✓ Reviewed' : 'Mark Reviewed'}
+              </button>
+              <button
+                type="button"
+                onClick={onStartEdit}
+                style={{
+                  ...selectStyle,
+                  fontSize: '12px',
+                  color: docHasMarked ? '#f59e0b' : undefined,
+                  borderColor: docHasMarked ? 'rgba(245,158,11,0.4)' : undefined,
+                }}
+                title={docHasMarked ? 'Edit marked fields only' : 'Edit all fields'}
+              >
+                {docHasMarked ? '✎ Edit marked' : '✎ Edit'}
+              </button>
+              <a
+                href={doc.editUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  fontSize: '12px',
+                  color: 'var(--theme-elevation-500)',
+                  textDecoration: 'none',
+                  padding: '4px 8px',
+                  border: '1px solid var(--theme-elevation-200)',
+                  borderRadius: '3px',
+                }}
+              >
+                CMS ↗
+              </a>
+            </>
+          )}
         </div>
       </div>
 
@@ -258,7 +329,7 @@ function DocumentCard({
           No text content.
         </div>
       ) : (
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', tableLayout: 'fixed' }}>
           <thead>
             <tr style={{ background: 'var(--theme-elevation-25, #161616)' }}>
               <th style={{ ...thStyle, width: '180px' }}>Field</th>
@@ -291,6 +362,8 @@ function DocumentCard({
                   className={rowClass}
                   onClick={(e) => {
                     if (window.getSelection()?.toString().length) return
+                    if ((e.target as HTMLElement).tagName === 'TEXTAREA') return
+                    if (isEditing) return
                     onToggleMark(fieldKey)
                   }}
                   style={{ borderTop: '1px solid var(--theme-elevation-100, #222)' }}
@@ -316,7 +389,7 @@ function DocumentCard({
                   </td>
 
                   {field.singleValue !== undefined ? (
-                    // Non-localized JSON field — spans both locale columns
+                    // Non-localized JSON field — spans both locale columns, never editable
                     <td
                       colSpan={2}
                       style={{
@@ -331,34 +404,98 @@ function DocumentCard({
                     </td>
                   ) : (
                     <>
-                      <td
-                        style={{
-                          ...tdStyle,
-                          color: !aVal && field.isMissing ? 'rgba(239,68,68,0.5)' : undefined,
-                          fontStyle: !aVal ? 'italic' : undefined,
-                        }}
-                      >
-                        {aVal || (field.isMissing ? 'empty' : '')}
-                      </td>
-                      <td
-                        style={{
-                          ...tdStyle,
-                          borderRight: 'none',
-                          color: !bVal && field.isMissing
-                            ? 'rgba(239,68,68,0.5)'
-                            : same && !field.isWarning
-                            ? 'var(--theme-elevation-500)'
-                            : undefined,
-                          fontStyle: !bVal ? 'italic' : undefined,
-                        }}
-                      >
-                        {bVal || (field.isMissing ? 'empty' : '')}
-                        {field.isWarning && field.warningNote && !field.isMissing && (
-                          <span style={{ display: 'block', fontSize: '11px', color: '#ca8a04', opacity: 0.8, marginTop: '2px' }}>
-                            {field.warningNote}
-                          </span>
-                        )}
-                      </td>
+                      {[localeA, localeB].map((locale, colIdx) => {
+                        const val = field.values[locale] ?? ''
+                        const editKey = `${locale}:::${field.path}`
+                        const editedVal = currentEdits[editKey]
+                        const displayVal = editedVal !== undefined ? editedVal : val
+                        const canEdit = fieldIsEditable(field.path) && field.fieldType !== undefined && field.path !== 'localizedPaths'
+                        const isLastCol = colIdx === 1
+
+                        if (canEdit) {
+                          const editDefault = editedVal !== undefined
+                            ? editedVal
+                            : (field.editValues?.[locale] ?? val)
+                          const isRich = field.fieldType === 'richText'
+                          const taStyle: React.CSSProperties = {
+                            display: 'block',
+                            width: '100%',
+                            padding: 0,
+                            margin: 0,
+                            background: 'rgba(255,255,255,0.04)',
+                            border: 'none',
+                            borderRadius: '2px',
+                            color: 'var(--theme-text, #eee)',
+                            fontFamily: isRich ? 'monospace' : 'inherit',
+                            fontSize: '13px',
+                            lineHeight: '1.6',
+                            resize: 'none',
+                            overflow: 'hidden',
+                            boxSizing: 'border-box',
+                            outline: 'none',
+                            whiteSpace: 'pre-wrap',
+                            wordBreak: 'break-word',
+                          }
+                          return (
+                            <td
+                              key={locale}
+                              style={{
+                                ...tdStyle,
+                                borderRight: isLastCol ? 'none' : tdStyle.borderRight,
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <textarea
+                                ref={(el) => {
+                                  if (el) {
+                                    el.style.height = 'auto'
+                                    el.style.height = el.scrollHeight + 'px'
+                                  }
+                                }}
+                                value={editDefault}
+                                onChange={(e) => {
+                                  onEditChange(editKey, e.target.value)
+                                  e.target.style.height = 'auto'
+                                  e.target.style.height = e.target.scrollHeight + 'px'
+                                }}
+                                placeholder={isRich
+                                  ? '# Heading 1\n## Heading 2\n\n__bold__ _italic_ ___both___\n~~strike~~ `code`\n[link text](https://url)\n- bullet\n1. ordered'
+                                  : ''}
+                                rows={1}
+                                style={taStyle}
+                              />
+                            </td>
+                          )
+                        }
+
+                        // Read-only cell (dimmed when editing mode is active but field not editable)
+                        const isMuted = isEditing && !canEdit
+                        return (
+                          <td
+                            key={locale}
+                            style={{
+                              ...tdStyle,
+                              borderRight: isLastCol ? 'none' : tdStyle.borderRight,
+                              color: !val && field.isMissing
+                                ? 'rgba(239,68,68,0.5)'
+                                : isLastCol && same && !field.isWarning
+                                ? 'var(--theme-elevation-500)'
+                                : isMuted
+                                ? 'var(--theme-elevation-300)'
+                                : undefined,
+                              fontStyle: !val ? 'italic' : undefined,
+                              opacity: isMuted ? 0.5 : undefined,
+                            }}
+                          >
+                            {val || (field.isMissing ? 'empty' : '')}
+                            {isLastCol && field.isWarning && field.warningNote && !field.isMissing && (
+                              <span style={{ display: 'block', fontSize: '11px', color: '#ca8a04', opacity: 0.8, marginTop: '2px' }}>
+                                {field.warningNote}
+                              </span>
+                            )}
+                          </td>
+                        )
+                      })}
                     </>
                   )}
                 </tr>
@@ -384,6 +521,7 @@ function downloadJson(data: unknown, filename: string) {
 type ShowMode = 'all' | 'missing' | 'warnings' | 'marked'
 
 export function ContentReviewList({ documents, localeCodes, initialNotes }: Props) {
+  const router = useRouter()
   const [localeA, setLocaleA] = useState(localeCodes[0] ?? 'en')
   const [localeB, setLocaleB] = useState(localeCodes[1] ?? localeCodes[0] ?? 'en')
   const [filterKey, setFilterKey] = useState('new')
@@ -392,6 +530,10 @@ export function ContentReviewList({ documents, localeCodes, initialNotes }: Prop
   const [notes, setNotes] = useState<Record<string, ReviewNote>>(initialNotes)
   const [pendingKeys, setPendingKeys] = useState(new Set<string>())
   const [, startTransition] = useTransition()
+  // Edit mode state
+  const [editingDocKey, setEditingDocKey] = useState<string | null>(null)
+  const [currentEdits, setCurrentEdits] = useState<Record<string, string>>({})
+  const [isSaving, setIsSaving] = useState(false)
 
   const handleToggleMark = (key: string) => {
     setMarkedFields((prev) => {
@@ -430,6 +572,41 @@ export function ContentReviewList({ documents, localeCodes, initialNotes }: Prop
         })
       }
     })
+  }
+
+  const handleStartEdit = (docKey: string) => {
+    setEditingDocKey(docKey)
+    setCurrentEdits({})
+  }
+
+  const handleCancelEdit = () => {
+    setEditingDocKey(null)
+    setCurrentEdits({})
+  }
+
+  const handleEditChange = (editKey: string, value: string) => {
+    setCurrentEdits((prev) => ({ ...prev, [editKey]: value }))
+  }
+
+  const handleSave = async (doc: ContentDocument) => {
+    setIsSaving(true)
+    try {
+      const editsByLocale: Record<string, FieldEdit[]> = {}
+      for (const [editKey, value] of Object.entries(currentEdits)) {
+        const sepIdx = editKey.indexOf(':::')
+        if (sepIdx === -1) continue
+        const locale = editKey.slice(0, sepIdx)
+        const path = editKey.slice(sepIdx + 3)
+        const fieldType = doc.fields.find((f) => f.path === path)?.fieldType ?? 'text'
+        ;(editsByLocale[locale] ??= []).push({ path, value, fieldType })
+      }
+      await saveDocumentEdits(doc.docKey, editsByLocale)
+      setEditingDocKey(null)
+      setCurrentEdits({})
+      router.refresh()
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   const groupOptions = useMemo(() => {
@@ -673,6 +850,13 @@ export function ContentReviewList({ documents, localeCodes, initialNotes }: Prop
             reviewStatus={getReviewStatus(doc, notes)}
             onToggleReviewed={handleToggleReviewed}
             isPending={pendingKeys.has(doc.docKey)}
+            isEditing={editingDocKey === doc.docKey}
+            currentEdits={currentEdits}
+            onEditChange={handleEditChange}
+            onSave={() => handleSave(doc)}
+            onCancelEdit={handleCancelEdit}
+            onStartEdit={() => handleStartEdit(doc.docKey)}
+            isSaving={isSaving}
           />
         ))
       )}
