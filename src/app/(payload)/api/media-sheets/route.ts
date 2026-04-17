@@ -30,6 +30,13 @@ const HEADER_H = 28
 const BG = { r: 14, g: 14, b: 14 }
 
 export async function GET(req: Request) {
+  // Dev-only: Sharp compositing over hundreds of images is a poor fit for
+  // Vercel functions (memory + 60s timeout), and the response returns local
+  // file paths the client could never read remotely.
+  if (process.env.NODE_ENV === 'production') {
+    return new Response('Not available in production', { status: 404 })
+  }
+
   const url = new URL(req.url)
   const origin = url.origin
   const search = url.searchParams.get('search') || undefined
