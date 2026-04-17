@@ -13,10 +13,8 @@ import { draftProtectionPlugin } from '@payload-admin/plugins/draftProtectionPlu
  * that use this submodule — just update the submodule pointer.
  */
 export function payloadAdminPlugin(): Plugin {
-  return (config: Config): Config => {
-    // Apply behaviour plugins in sequence
-    let result = draftProtectionPlugin()(config)
-    // Add utility collections
+  return async (config: Config): Promise<Config> => {
+    let result = await draftProtectionPlugin()(config)
     result = {
       ...result,
       collections: [...(result.collections ?? []), ContentReviewNotes],

@@ -296,8 +296,8 @@ function DocumentCard({
                 style={{
                   ...selectStyle,
                   fontSize: '12px',
-                  color: docHasMarked ? '#f59e0b' : undefined,
-                  borderColor: docHasMarked ? 'rgba(245,158,11,0.4)' : undefined,
+                  color: docHasMarked ? '#f59e0b' : 'var(--theme-text, #eee)',
+                  border: `1px solid ${docHasMarked ? 'rgba(245,158,11,0.4)' : 'var(--theme-elevation-200, #333)'}`,
                 }}
                 title={docHasMarked ? 'Edit marked fields only' : 'Edit all fields'}
               >
@@ -736,9 +736,9 @@ export function ContentReviewList({ documents, localeCodes, initialNotes }: Prop
         style={{
           ...selectStyle,
           opacity: !active && (count === 0 || count === undefined) ? 0.4 : 1,
-          borderColor: active && color ? `${color}88` : undefined,
-          color: active && color ? color : undefined,
-          background: active && color ? `${color}14` : undefined,
+          border: `1px solid ${active && color ? `${color}88` : 'var(--theme-elevation-200, #333)'}`,
+          color: active && color ? color : 'var(--theme-text, #eee)',
+          background: active && color ? `${color}14` : 'var(--theme-elevation-100, #222)',
         }}
       >
         {label}{count !== undefined ? ` (${count})` : ''}
@@ -811,8 +811,8 @@ export function ContentReviewList({ documents, localeCodes, initialNotes }: Prop
           style={{
             ...selectStyle,
             opacity: markedCount === 0 ? 0.4 : 1,
-            borderColor: markedCount > 0 ? 'rgba(245,158,11,0.5)' : undefined,
-            color: markedCount > 0 ? '#f59e0b' : undefined,
+            border: `1px solid ${markedCount > 0 ? 'rgba(245,158,11,0.5)' : 'var(--theme-elevation-200, #333)'}`,
+            color: markedCount > 0 ? '#f59e0b' : 'var(--theme-text, #eee)',
           }}
         >
           Export Marked ({markedCount})
