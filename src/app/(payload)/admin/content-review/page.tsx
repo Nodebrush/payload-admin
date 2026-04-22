@@ -3,10 +3,14 @@ import { getPayload } from 'payload'
 import config from '@payload-config'
 import { fetchAllContent } from '@payload-admin/views/ContentReview/fetchContent'
 import { ContentReviewList } from '@payload-admin/views/ContentReview'
+import { requireAdminPage } from '@payload-admin/access/requireAdminPage'
 
 export const dynamic = 'force-dynamic'
 
 export default async function ContentReviewPage() {
+  const forbidden = await requireAdminPage()
+  if (forbidden) return forbidden
+
   const payload = await getPayload({ config })
   const { documents, localeCodes, notes } = await fetchAllContent(payload)
 

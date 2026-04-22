@@ -2,10 +2,15 @@
 
 import React from 'react'
 import { usePathname } from 'next/navigation'
+import { useAuth } from '@payloadcms/ui'
+import { getUserRole } from '@payload-admin/access/roles'
 
 export default function ContentReviewNavLink() {
+  const { user } = useAuth()
   const pathname = usePathname()
   const isActive = pathname === '/admin/content-review'
+
+  if (getUserRole(user) !== 'admin') return null
 
   return (
     <div>

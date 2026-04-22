@@ -1,14 +1,15 @@
 import type { Config, Plugin } from 'payload'
+import { getUserRole } from '@payload-admin/access/roles'
 
 /**
- * Payload plugin that restricts publishing for the MCP API user across all
- * collections and globals that have draft mode enabled.
+ * Payload plugin that blocks publishing for users with the `contributor` role
+ * across every collection and global that has draft mode enabled.
  *
  * Uses a beforeOperation hook — the earliest possible interception point,
  * before field processing, access checks, or beforeChange hooks run.
- * Throws an error if mcp@nodebrush.com attempts to set _status: 'published'.
+ * Throws an error if a contributor attempts to set _status: 'published'.
  *
- * Admin UI users with other emails are unaffected and can publish freely.
+ * Admins and editors are unaffected and can publish freely.
  */
 export const draftProtectionPlugin = (): Plugin => (incomingConfig: Config): Config => {
     const hasDrafts = (versions: any): boolean => {
@@ -17,13 +18,14 @@ export const draftProtectionPlugin = (): Plugin => (incomingConfig: Config): Con
         return false
     }
 
-    const blockMcpPublish = async ({ args, operation, req }: any) => {
+    const blockContributorPublish = async ({ args, operation, req }: any) => {
         if (
-            req.user?.email === 'mcp@nodebrush.com' &&
+            req.user &&
+            getUserRole(req.user) === 'contributor' &&
             (operation === 'update' || operation === 'create') &&
             args?.data?._status === 'published'
         ) {
-            throw new Error('Publishing is not allowed for the MCP API user. Save as draft instead.')
+            throw new Error('Contributors can only save drafts — publishing is not allowed.')
         }
         return args
     }
@@ -37,7 +39,7 @@ export const draftProtectionPlugin = (): Plugin => (incomingConfig: Config): Con
                 hooks: {
                     ...collection.hooks,
                     beforeOperation: [
-                        blockMcpPublish,
+                        blockContributorPublish,
                         ...(collection.hooks?.beforeOperation ?? []),
                     ],
                 },
@@ -50,7 +52,7 @@ export const draftProtectionPlugin = (): Plugin => (incomingConfig: Config): Con
                 hooks: {
                     ...global.hooks,
                     beforeOperation: [
-                        blockMcpPublish,
+                        blockContributorPublish,
                         ...(global.hooks?.beforeOperation ?? []),
                     ],
                 },

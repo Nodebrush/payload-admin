@@ -1,4 +1,5 @@
 import type { CollectionConfig } from 'payload'
+import { isAdmin } from '@payload-admin/access/roles'
 
 /**
  * Internal utility collection for the Content Review tool.
@@ -11,10 +12,10 @@ export const ContentReviewNotes: CollectionConfig = {
     hidden: true,
   },
   access: {
-    read: () => true,
-    create: () => true,
-    update: () => true,
-    delete: () => true,
+    read: isAdmin,
+    create: isAdmin,
+    update: isAdmin,
+    delete: isAdmin,
   },
   fields: [
     {

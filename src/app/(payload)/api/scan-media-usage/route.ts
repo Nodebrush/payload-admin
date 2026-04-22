@@ -2,6 +2,8 @@ import { getPayload } from 'payload'
 import config from '@payload-config'
 import { payloadConfigBase } from '@payload-config/payload-base.config'
 import { NextResponse } from 'next/server'
+import { headers } from 'next/headers'
+import { getUserRole } from '@payload-admin/access/roles'
 
 type UsageEntry = {
   collection: string
@@ -82,6 +84,10 @@ async function scanCollection(
 export async function POST() {
   try {
     const payload = await getPayload({ config })
+    const { user } = await payload.auth({ headers: await headers() })
+    if (!user || getUserRole(user) !== 'admin') {
+      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 403 })
+    }
     const usageMap = new Map<number, UsageEntry[]>()
 
     // Scan all collections from the shared config (skip media itself)

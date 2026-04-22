@@ -3,10 +3,14 @@ import { getPayload } from 'payload'
 import config from '@payload-config'
 import { fetchAllPendingDrafts } from '@payload-admin/views/DraftReview/fetchDrafts'
 import { DraftList } from '@payload-admin/views/DraftReview/PublishButtons'
+import { requireAdminPage } from '@payload-admin/access/requireAdminPage'
 
 export const dynamic = 'force-dynamic'
 
 export default async function DraftReviewPage() {
+  const forbidden = await requireAdminPage()
+  if (forbidden) return forbidden
+
   const payload = await getPayload({ config })
   const drafts = await fetchAllPendingDrafts(payload)
 

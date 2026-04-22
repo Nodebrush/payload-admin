@@ -1,5 +1,6 @@
 import type { Endpoint } from 'payload'
 import { reindexAll } from './hooks'
+import { getUserRole } from '@payload-admin/access/roles'
 
 /**
  * Admin-only endpoint that rebuilds the search_index for every non-system
@@ -13,8 +14,8 @@ export const reindexSearchEndpoint: Endpoint = {
   path: '/reindex-search',
   method: 'post',
   handler: async (req) => {
-    if (!req.user) {
-      return Response.json({ error: 'Unauthorized' }, { status: 401 })
+    if (!req.user || getUserRole(req.user) !== 'admin') {
+      return Response.json({ error: 'Forbidden' }, { status: 403 })
     }
     const counts = await reindexAll(req.payload)
     const total = Object.values(counts).reduce((a, b) => a + b, 0)

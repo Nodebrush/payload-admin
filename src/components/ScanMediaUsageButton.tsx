@@ -2,6 +2,8 @@
 
 import React, { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { useAuth } from '@payloadcms/ui'
+import { getUserRole } from '@payload-admin/access/roles'
 
 type ScanResult = {
   success: boolean
@@ -11,9 +13,12 @@ type ScanResult = {
 }
 
 export default function ScanMediaUsageButton() {
+  const { user } = useAuth()
   const router = useRouter()
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<ScanResult | null>(null)
+
+  if (getUserRole(user) !== 'admin') return null
 
   const handleScan = async () => {
     setLoading(true)
