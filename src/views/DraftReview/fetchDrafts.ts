@@ -79,6 +79,14 @@ function lexicalToText(json: unknown): string {
     .trim()
 }
 
+function lexicalEqual(a: unknown, b: unknown): boolean {
+  const aLex = isLexical(a)
+  const bLex = isLexical(b)
+  if (!aLex && !bLex) return true
+  if (aLex !== bLex) return false
+  return JSON.stringify(a) === JSON.stringify(b)
+}
+
 function valueToString(val: unknown): string {
   if (val === null || val === undefined) return ''
   if (typeof val === 'string') return val
@@ -144,9 +152,9 @@ function compareScalarFields(
     if (Array.isArray(pubVal) || Array.isArray(draftVal)) continue
 
     if (isLexical(pubVal) || isLexical(draftVal)) {
-      const oldStr = lexicalToText(pubVal)
-      const newStr = lexicalToText(draftVal)
-      if (oldStr !== newStr) diffs.push({ path: fieldPath, old: oldStr, new: newStr })
+      if (!lexicalEqual(pubVal, draftVal)) {
+        diffs.push({ path: fieldPath, old: lexicalToText(pubVal), new: lexicalToText(draftVal) })
+      }
       continue
     }
 
@@ -224,9 +232,9 @@ export function computeDiff(
     }
 
     if (isLexical(pubVal) || isLexical(draftVal)) {
-      const oldStr = lexicalToText(pubVal)
-      const newStr = lexicalToText(draftVal)
-      if (oldStr !== newStr) fieldDiffs.push({ path: key, old: oldStr, new: newStr })
+      if (!lexicalEqual(pubVal, draftVal)) {
+        fieldDiffs.push({ path: key, old: lexicalToText(pubVal), new: lexicalToText(draftVal) })
+      }
       continue
     }
 
