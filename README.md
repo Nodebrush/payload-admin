@@ -34,7 +34,8 @@ S3_BUCKET=
 S3_ENDPOINT=
 S3_ACCESS_KEY_ID=
 S3_SECRET_ACCESS_KEY=
-FRONTEND_URL=http://localhost:5173
+PUBLIC_SITE_URL=http://localhost:5173
+PUBLIC_PAYLOAD_ADMIN_URL=http://localhost:3000
 ```
 
 ## Component aliases

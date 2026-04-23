@@ -1,19 +1,44 @@
 export interface ForgotPasswordEmailOptions {
-  /** Project display name — e.g. 'ECSA CMS' */
+  /** Project display name — e.g. 'ECSA CMS'. Used in the subject and title. */
   projectName: string
-  /** Base URL of the admin app — e.g. 'https://admin.ecsa-customs.com' */
+  /** Base URL of the admin app — e.g. 'https://cms.ecsa-customs.com'. */
   adminUrl: string
+  /**
+   * Expanded name shown in the footer — e.g. 'European Customs Services
+   * Alliance (ECSA)'. Falls back to projectName.
+   */
+  fullProjectName?: string
+  /** Public site URL shown alongside the admin URL in the footer. */
+  siteUrl?: string
 }
 
 type ForgotPasswordArgs = {
   req?: unknown
   token?: string
-  user?: { email?: string; isInvite?: boolean } & Record<string, unknown>
+  user?: { email?: string; name?: string; isInvite?: boolean } & Record<string, unknown>
 } | undefined
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+function stripScheme(url: string): string {
+  return url.replace(/^https?:\/\//, '').replace(/\/$/, '')
+}
 
 /**
  * Returns auth.forgotPassword config (subject + HTML generators) that renders
  * branded emails for both password resets and invitations.
+ *
+ * Design: no background fills anywhere, so each client (light or dark, web
+ * or mobile) paints its own canvas and our text inherits the appropriate
+ * color. Structure comes from spacing, type weight, and a single divider
+ * rule above the footer.
  *
  * Invitations piggy-back on Payload's forgotPassword flow: when we create a
  * user and immediately trigger forgotPassword, the resulting email is the
@@ -23,8 +48,9 @@ type ForgotPasswordArgs = {
  * Spread the result onto the Users collection's `auth.forgotPassword` field.
  */
 export function forgotPasswordEmail(options: ForgotPasswordEmailOptions) {
-  const { projectName, adminUrl } = options
+  const { projectName, adminUrl, fullProjectName, siteUrl } = options
   const base = adminUrl.replace(/\/$/, '')
+  const footerName = fullProjectName ?? projectName
 
   return {
     generateEmailSubject: (args: ForgotPasswordArgs) => {
@@ -36,8 +62,10 @@ export function forgotPasswordEmail(options: ForgotPasswordEmailOptions) {
       const user = args?.user
       const link = `${base}/admin/reset/${token}`
       const isInvite = Boolean(user?.isInvite)
+      const name = typeof user?.name === 'string' ? user.name.trim() : ''
 
       const title = isInvite ? `Welcome to ${projectName}` : `Reset your password`
+      const greeting = name ? `Hello, ${escapeHtml(name)}.` : ''
       const intro = isInvite
         ? `You've been invited to ${projectName}. Click the button below to set your password and sign in.`
         : `Someone (hopefully you) requested a password reset for your ${projectName} account. Click the button below to choose a new password.`
@@ -52,35 +80,65 @@ export function forgotPasswordEmail(options: ForgotPasswordEmailOptions) {
         ? `If you run into any issues, just reply to this email and we'll help you out.`
         : ''
 
-      // Segoe UI first so Outlook uses it (installed with Windows since Vista)
-      // instead of falling through to MS PGothic. Apple Mail / Gmail pick the
-      // next available from the stack.
       const font = `font-family:'Segoe UI',-apple-system,BlinkMacSystemFont,Roboto,sans-serif;`
+      const muted = `color:#888888;`
+
+      // Nested <span> inside <a> is the Outlook-safe link trick — New Outlook
+      // restyles the <a> but honors the inner <span>'s inline color.
+      const linkStyle = `color:#888888;text-decoration:none;${font}`
+      const footerLinks: string[] = []
+      if (siteUrl) {
+        footerLinks.push(
+          `<a href="${siteUrl}" style="${linkStyle}"><span style="${linkStyle}">${stripScheme(siteUrl)}</span></a>`,
+        )
+      }
+      footerLinks.push(
+        `<a href="${adminUrl}" style="${linkStyle}"><span style="${linkStyle}">${stripScheme(adminUrl)}</span></a>`,
+      )
 
       return `<!DOCTYPE html>
 <html>
-  <body style="margin:0;padding:0;background:#f4f4f7;color:#1a1a1a;${font}">
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f4f4f7;padding:40px 20px;${font}">
+  <head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <meta name="color-scheme" content="light dark"/>
+    <meta name="supported-color-schemes" content="light dark"/>
+    <style>
+      /* New Outlook / Outlook.com sanitizer injects its own a:link and
+         MsoHyperlink rules. Override at high specificity so our inline
+         color:inherit isn't overpowered. */
+      a, a:link, a:visited, a:hover, a:active,
+      span.MsoHyperlink, span.MsoHyperlinkFollowed {
+        color: inherit !important;
+        text-decoration: none !important;
+        mso-style-priority: 100 !important;
+      }
+    </style>
+  </head>
+  <body style="margin:0;padding:0;${font}">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="padding:32px 20px;${font}">
       <tr>
         <td align="center" style="${font}">
-          <table role="presentation" width="560" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.06);${font}">
+          <table role="presentation" width="560" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;${font}">
             <tr>
-              <td style="padding:40px 40px 24px;${font}">
-                <h1 style="margin:0 0 16px;font-size:22px;font-weight:700;color:#1a1a1a;${font}">${title}</h1>
-                <p style="margin:0 0 24px;font-size:16px;line-height:1.6;color:#333333;${font}">${intro}</p>
+              <td style="padding:0 0 24px;${font}">
+                <h1 style="margin:0 0 16px;font-size:22px;font-weight:700;line-height:1.3;${font}">${title}</h1>
+                ${greeting ? `<p style="margin:0 0 16px;font-size:16px;line-height:1.6;${font}">${greeting}</p>` : ''}
+                <p style="margin:0 0 24px;font-size:16px;line-height:1.6;${font}">${intro}</p>
                 <p style="margin:0 0 28px;font-size:17px;line-height:1.6;${font}">
-                  <a href="${link}" style="font-weight:700;color:#1a1a1a;text-decoration:none;${font}">${buttonText} &rarr;</a>
+                  <a href="${link}" style="color:inherit;text-decoration:none;${font}"><span style="color:inherit;text-decoration:none;font-weight:700;">${buttonText} &rarr;</span></a>
                 </p>
-                <p style="margin:0 0 8px;font-size:14px;line-height:1.6;color:#666666;${font}">Or copy and paste this URL into your browser:</p>
-                <p style="margin:0 0 24px;font-size:13px;line-height:1.6;color:#666666;word-break:break-all;${font}"><a href="${link}" style="color:#666666;text-decoration:none;${font}">${link}</a></p>
-                <p style="margin:0 0 8px;font-size:14px;line-height:1.6;color:#888888;${font}">${expiryNote}</p>
-                <p style="margin:0 0 ${supportNote ? '8px' : '0'};font-size:14px;line-height:1.6;color:#888888;${font}">${ignoreNote}</p>
-                ${supportNote ? `<p style="margin:0;font-size:14px;line-height:1.6;color:#888888;${font}">${supportNote}</p>` : ''}
+                <p style="margin:0 0 8px;font-size:14px;line-height:1.6;${muted}${font}">Or copy and paste this URL into your browser:</p>
+                <p style="margin:0 0 24px;font-size:13px;line-height:1.6;word-break:break-all;${muted}${font}"><a href="${link}" style="color:#888888;text-decoration:none;${font}"><span style="color:#888888;text-decoration:none;">${link}</span></a></p>
+                <p style="margin:0 0 8px;font-size:14px;line-height:1.6;${muted}${font}">${expiryNote}</p>
+                <p style="margin:0 0 ${supportNote ? '8px' : '0'};font-size:14px;line-height:1.6;${muted}${font}">${ignoreNote}</p>
+                ${supportNote ? `<p style="margin:0;font-size:14px;line-height:1.6;${muted}${font}">${supportNote}</p>` : ''}
               </td>
             </tr>
             <tr>
-              <td style="padding:16px 40px;background:#f9f9fb;border-top:1px solid #eeeeee;${font}">
-                <p style="margin:0;font-size:13px;color:#999999;${font}">${projectName}</p>
+              <td style="padding:16px 0 0;border-top:1px solid #999999;${font}">
+                <p style="margin:0;font-size:13px;font-weight:600;${font}">${footerName}</p>
+                <p style="margin:6px 0 0;font-size:12px;${muted}${font}">${footerLinks.join(' &middot; ')}</p>
               </td>
             </tr>
           </table>
