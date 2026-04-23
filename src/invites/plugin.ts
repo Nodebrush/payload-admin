@@ -1,11 +1,17 @@
 import type { Config, Plugin, CollectionConfig, Field } from 'payload'
 import { inviteUserEndpoint } from './endpoint'
+import { resendInviteEndpoint } from './resendEndpoint'
 
 /**
  * Plugin that enables the invite-user flow:
- *  - Registers POST /api/invite-user
- *  - Adds a hidden `isInvite` boolean to the auth-user collection
+ *  - Registers POST /api/invite-user and POST /api/resend-invite
+ *  - Adds a read-only `isInvite` boolean to the auth-user collection so
+ *    admins can see at a glance who has accepted their invitation
+ *  - Adds a `resendInvite` UI field that renders a "Resend invitation"
+ *    button on pending users' edit view
  *  - Adds an afterLogin hook that clears `isInvite` once the user signs in
+ *  - Adds `isInvite` to the auth collection's defaultColumns so the status
+ *    shows up in the list view without per-project config
  *
  * The invitation email copy itself (branded HTML) is configured separately
  * by spreading forgotPasswordEmail(...) onto the Users collection's
@@ -19,11 +25,27 @@ export const invitesPlugin = (): Plugin => (incomingConfig: Config): Config => {
     name: 'isInvite',
     type: 'checkbox',
     defaultValue: false,
-    admin: { hidden: true },
+    label: 'Invite pending (user has not signed in yet)',
+    admin: {
+      readOnly: true,
+      description:
+        'Automatically unchecks the first time this user signs in. If still checked, they have not accepted their invitation.',
+    },
     access: {
       read: () => true,
       create: () => true,
       update: () => true,
+    },
+  }
+
+  const resendInviteUIField: Field = {
+    name: 'resendInvite',
+    type: 'ui',
+    admin: {
+      condition: (data) => Boolean(data?.isInvite),
+      components: {
+        Field: '@payload-admin/invites/ResendInviteButton',
+      },
     },
   }
 
@@ -33,10 +55,27 @@ export const invitesPlugin = (): Plugin => (incomingConfig: Config): Config => {
     const hasIsInvite = coll.fields.some(
       (f) => 'name' in f && (f as { name?: string }).name === 'isInvite',
     )
+    const hasResendInvite = coll.fields.some(
+      (f) => 'name' in f && (f as { name?: string }).name === 'resendInvite',
+    )
+
+    const nextFields: Field[] = [...coll.fields]
+    if (!hasIsInvite) nextFields.push(isInviteField)
+    if (!hasResendInvite) nextFields.push(resendInviteUIField)
+
+    const existingDefaultColumns = coll.admin?.defaultColumns
+    const nextDefaultColumns =
+      existingDefaultColumns && !existingDefaultColumns.includes('isInvite')
+        ? [...existingDefaultColumns, 'isInvite']
+        : existingDefaultColumns
 
     return {
       ...coll,
-      fields: hasIsInvite ? coll.fields : [...coll.fields, isInviteField],
+      admin: {
+        ...coll.admin,
+        ...(nextDefaultColumns ? { defaultColumns: nextDefaultColumns } : {}),
+      },
+      fields: nextFields,
       hooks: {
         ...coll.hooks,
         afterLogin: [
@@ -59,6 +98,10 @@ export const invitesPlugin = (): Plugin => (incomingConfig: Config): Config => {
   return {
     ...incomingConfig,
     collections,
-    endpoints: [...(incomingConfig.endpoints ?? []), inviteUserEndpoint],
+    endpoints: [
+      ...(incomingConfig.endpoints ?? []),
+      inviteUserEndpoint,
+      resendInviteEndpoint,
+    ],
   }
 }
