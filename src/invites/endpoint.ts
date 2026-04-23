@@ -26,7 +26,8 @@ export const inviteUserEndpoint: Endpoint = {
     }
 
     const email = body.email?.trim().toLowerCase()
-    const role: UserRole = body.role === 'admin' ? 'admin' : 'editor'
+    const role: UserRole =
+      body.role === 'admin' || body.role === 'contributor' ? body.role : 'editor'
 
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return Response.json({ error: 'A valid email is required' }, { status: 400 })

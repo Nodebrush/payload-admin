@@ -15,7 +15,7 @@ export const roleField: Field = {
   options: [
     { label: 'Admin', value: 'admin' },
     { label: 'Editor', value: 'editor' },
-    { label: 'Contributor (draft-only)', value: 'contributor' },
+    { label: 'Contributor', value: 'contributor' },
   ],
   access: {
     create: isAdminFieldAccess,

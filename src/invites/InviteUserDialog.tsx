@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 
-type Role = 'admin' | 'editor'
+type Role = 'admin' | 'editor' | 'contributor'
 
 interface Props {
   onClose: () => void
@@ -138,7 +138,8 @@ export function InviteUserDialog({ onClose }: Props) {
                 onChange={(e) => setRole(e.target.value as Role)}
                 style={inputStyle}
               >
-                <option value="editor">Editor — content only</option>
+                <option value="editor">Editor — content, can publish</option>
+                <option value="contributor">Contributor — content, drafts only</option>
                 <option value="admin">Admin — full access</option>
               </select>
             </label>

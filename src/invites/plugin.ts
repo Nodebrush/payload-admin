@@ -1,4 +1,5 @@
 import type { Config, Plugin, CollectionConfig, Field } from 'payload'
+import { isAdminFieldAccess } from '@payload-admin/access/roles'
 import { inviteUserEndpoint } from './endpoint'
 import { resendInviteEndpoint } from './resendEndpoint'
 
@@ -30,11 +31,13 @@ export const invitesPlugin = (): Plugin => (incomingConfig: Config): Config => {
       readOnly: true,
       description:
         'Automatically unchecks the first time this user signs in. If still checked, they have not accepted their invitation.',
+      condition: (_data, _siblingData, { user }) =>
+        Boolean(user && (user as { role?: string }).role === 'admin'),
     },
     access: {
-      read: () => true,
-      create: () => true,
-      update: () => true,
+      read: isAdminFieldAccess,
+      create: isAdminFieldAccess,
+      update: isAdminFieldAccess,
     },
   }
 
@@ -42,7 +45,12 @@ export const invitesPlugin = (): Plugin => (incomingConfig: Config): Config => {
     name: 'resendInvite',
     type: 'ui',
     admin: {
-      condition: (data) => Boolean(data?.isInvite),
+      condition: (data, _siblingData, { user }) =>
+        Boolean(
+          data?.isInvite &&
+            user &&
+            (user as { role?: string }).role === 'admin',
+        ),
       components: {
         Field: '@payload-admin/invites/ResendInviteButton',
       },
@@ -87,6 +95,7 @@ export const invitesPlugin = (): Plugin => (incomingConfig: Config): Config => {
                 id: user.id,
                 data: { isInvite: false } as any,
                 overrideAccess: true,
+                req,
               })
             }
           },
