@@ -4,13 +4,16 @@ import {
   createAfterDeleteHook,
   SYSTEM_COLLECTIONS,
 } from './hooks'
-import { reindexSearchEndpoint } from './endpoint'
+import { backfillSearchUrlsEndpoint, reindexSearchEndpoint } from './endpoint'
 
 /**
  * Payload plugin that owns the full-text search index:
  *  - Attaches afterChange + afterDelete hooks to every non-system collection
  *    so writes propagate into search.search_index.
  *  - Registers POST /api/reindex-search for full rebuilds.
+ *  - Registers POST /api/backfill-search-urls for the one-off "re-save
+ *    every doc so beforeChange hooks re-run" migration (used after
+ *    adopting a new derived field like localizedPaths).
  *
  * The schema is created lazily on first write (ensureSearchSchema), so a
  * fresh project gets the table as soon as any content is saved. Frontends
@@ -41,6 +44,10 @@ export const searchPlugin = (): Plugin => (incomingConfig: Config): Config => {
   return {
     ...incomingConfig,
     collections,
-    endpoints: [...(incomingConfig.endpoints ?? []), reindexSearchEndpoint],
+    endpoints: [
+      ...(incomingConfig.endpoints ?? []),
+      reindexSearchEndpoint,
+      backfillSearchUrlsEndpoint,
+    ],
   }
 }

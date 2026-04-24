@@ -162,18 +162,26 @@ export function extractText(
 /**
  * Resolves the URL for a doc in a given locale using `localizedPaths`.
  * Returns null if no path is set — caller decides whether to skip indexing.
+ *
+ * `prefixLocale` controls whether the returned URL is prefixed with `/${locale}`.
+ * Multi-locale projects (e.g. nodebrush) route through `/en/…`, `/sv/…` and need
+ * the prefix. Single-locale projects (no `payload.config.localization`) route
+ * directly from root and should get the raw path.
  */
 export function resolveUrl(
   collection: string,
   doc: Record<string, unknown>,
   locale: string,
+  opts?: { prefixLocale?: boolean },
 ): string | null {
   const lp = doc.localizedPaths
   if (typeof lp === 'object' && lp !== null && !Array.isArray(lp)) {
     const path = (lp as Record<string, unknown>)[locale]
     if (typeof path === 'string' && path) {
+      const normalized = path === '/' ? '/' : path.startsWith('/') ? path : `/${path}`
+      if (opts?.prefixLocale === false) return normalized
       const prefix = `/${locale}`
-      return path === '/' ? prefix : `${prefix}${path.startsWith('/') ? path : `/${path}`}`
+      return normalized === '/' ? prefix : `${prefix}${normalized}`
     }
   }
   return null

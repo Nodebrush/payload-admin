@@ -27,6 +27,11 @@ function getLocaleCodes(payload: Payload): string[] {
   return ['en']
 }
 
+function isLocalizedProject(payload: Payload): boolean {
+  const loc = payload.config.localization
+  return !!loc && Array.isArray(loc.locales) && loc.locales.length > 0
+}
+
 async function writeIndexRows(
   payload: Payload,
   collection: string,
@@ -37,6 +42,7 @@ async function writeIndexRows(
   const pool = (payload.db as any).pool
 
   const localeCodes = getLocaleCodes(payload)
+  const prefixLocale = isLocalizedProject(payload)
 
   // Re-fetch with locale:'all' so we see the full locale map for localized fields.
   let fullDoc: Record<string, unknown> | null = null
@@ -77,7 +83,7 @@ async function writeIndexRows(
 
   for (const locale of localeCodes) {
     const rawText = perLocale[locale] ?? ''
-    const url = resolveUrl(collection, fullDoc, locale)
+    const url = resolveUrl(collection, fullDoc, locale, { prefixLocale })
     // Skip any doc that can't be navigated to — no URL, no place for the
     // user to land. This cleanly excludes tags, menus, and any other
     // non-routable collections without hardcoding slugs.
@@ -143,6 +149,71 @@ export const createAfterDeleteHook =
     }
     return doc
   }
+
+/**
+ * Re-saves every doc in every non-system collection so beforeChange hooks
+ * re-run against the current schema. Useful after a project adopts new
+ * beforeChange-derived fields (e.g. `localizedPaths` for search URL
+ * resolution) and existing docs predate the hook.
+ *
+ * The update payload carries back the doc's existing fields — including
+ * `_status` — so published rows stay published and drafts stay drafts.
+ * Relationships stay as IDs because we fetch with depth:0.
+ *
+ * Triggers afterChange hooks too, so the search index is repopulated as a
+ * side effect. Returns count per collection.
+ */
+export async function backfillAll(payload: Payload): Promise<Record<string, number>> {
+  await ensureSearchSchema(payload)
+
+  const counts: Record<string, number> = {}
+  const collections = payload.config.collections.filter(
+    (c) => !SYSTEM_COLLECTIONS.has(c.slug),
+  )
+
+  for (const coll of collections) {
+    let page = 1
+    let count = 0
+    while (true) {
+      const batch = await payload.find({
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        collection: coll.slug as any,
+        depth: 0,
+        limit: 100,
+        page,
+        overrideAccess: true,
+      })
+      for (const d of batch.docs) {
+        const id = (d as { id?: string | number }).id
+        if (id === undefined || id === null) continue
+        try {
+          const data = { ...(d as Record<string, unknown>) }
+          delete data.id
+          delete data.createdAt
+          delete data.updatedAt
+          await payload.update({
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            collection: coll.slug as any,
+            id,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            data: data as any,
+            overrideAccess: true,
+          })
+          count++
+        } catch (err) {
+          payload.logger.error(
+            `[search] backfill failed for ${coll.slug}/${id}: ${String(err)}`,
+          )
+        }
+      }
+      if (!batch.hasNextPage) break
+      page++
+    }
+    counts[coll.slug] = count
+  }
+
+  return counts
+}
 
 /**
  * Full rebuild: wipes and re-indexes every non-system collection.
