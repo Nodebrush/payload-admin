@@ -132,6 +132,29 @@ export const previewAuthPlugin = (): Plugin => (incomingConfig: Config): Config 
             })
           },
         ],
+        beforeDelete: [
+          ...(coll.hooks?.beforeDelete ?? []),
+          async ({ req, id }) => {
+            await req.payload.delete({
+              collection: 'access-logs',
+              where: { user: { equals: id } },
+              overrideAccess: true,
+              req,
+            })
+            await req.payload.delete({
+              collection: 'preview-keys',
+              where: { user: { equals: id } },
+              overrideAccess: true,
+              req,
+            })
+            await req.payload.delete({
+              collection: 'payload-locked-documents',
+              where: { 'user.value': { equals: id } },
+              overrideAccess: true,
+              req,
+            })
+          },
+        ],
       },
     }
   })
