@@ -28,6 +28,7 @@ const SKIP_KEYS = new Set([
   'usedIn',
   'url',
   'blockType',
+  'type',
   '_key',
   'version',
 ])
