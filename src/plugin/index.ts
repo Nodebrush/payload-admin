@@ -25,6 +25,14 @@ export interface PayloadAdminPluginOptions {
   search?: boolean
 
   /**
+   * Project-specific field names to exclude from search indexing, on top
+   * of the system keys baked into the submodule. Use this to drop a text
+   * field that shouldn't be searchable (e.g. an internal note field) —
+   * the submodule itself never knows about per-project field names.
+   */
+  searchSkipKeys?: string[]
+
+  /**
    * Configure SendGrid email (reads SENDGRID_API_KEY from env). Required to
    * enable the invite flow and password resets. Pass `false` to disable.
    */
@@ -42,11 +50,11 @@ export interface PayloadAdminPluginOptions {
 }
 
 export function payloadAdminPlugin(options: PayloadAdminPluginOptions = {}): Plugin {
-  const { search = true, email, invites = true } = options
+  const { search = true, searchSkipKeys, email, invites = true } = options
   return async (config: Config): Promise<Config> => {
     let result = await draftProtectionPlugin()(config)
     if (search) {
-      result = await searchPlugin()(result)
+      result = await searchPlugin({ extraSkipKeys: searchSkipKeys })(result)
     }
     if (invites) {
       result = await invitesPlugin()(result)

@@ -10,18 +10,18 @@ import { getUserRole } from '@payload-admin/access/roles'
  *
  * Runs synchronously — returns counts per collection once finished.
  */
-export const reindexSearchEndpoint: Endpoint = {
+export const reindexSearchEndpoint = (opts: { extraSkipKeys?: string[] } = {}): Endpoint => ({
   path: '/reindex-search',
   method: 'post',
   handler: async (req) => {
     if (!req.user || getUserRole(req.user) !== 'admin') {
       return Response.json({ error: 'Forbidden' }, { status: 403 })
     }
-    const counts = await reindexAll(req.payload)
+    const counts = await reindexAll(req.payload, { extraSkipKeys: opts.extraSkipKeys })
     const total = Object.values(counts).reduce((a, b) => a + b, 0)
     return Response.json({ success: true, total, byCollection: counts })
   },
-}
+})
 
 /**
  * Admin-only endpoint that re-saves every doc in every non-system

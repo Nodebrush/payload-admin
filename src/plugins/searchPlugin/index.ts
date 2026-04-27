@@ -6,6 +6,16 @@ import {
 } from './hooks'
 import { backfillSearchUrlsEndpoint, reindexSearchEndpoint } from './endpoint'
 
+export interface SearchPluginOptions {
+  /**
+   * Extra field names to skip when building the search index, in addition
+   * to the system-managed keys baked into extract.ts. Use this to drop a
+   * specific text field from indexing (e.g. an internal-only note) without
+   * touching the submodule.
+   */
+  extraSkipKeys?: string[]
+}
+
 /**
  * Payload plugin that owns the full-text search index:
  *  - Attaches afterChange + afterDelete hooks to every non-system collection
@@ -22,7 +32,8 @@ import { backfillSearchUrlsEndpoint, reindexSearchEndpoint } from './endpoint'
  *
  * Disable per-project by passing { search: false } to payloadAdminPlugin().
  */
-export const searchPlugin = (): Plugin => (incomingConfig: Config): Config => {
+export const searchPlugin = (options: SearchPluginOptions = {}): Plugin => (incomingConfig: Config): Config => {
+  const extraSkipKeys = options.extraSkipKeys ?? []
   const collections = incomingConfig.collections?.map((coll) => {
     if (SYSTEM_COLLECTIONS.has(coll.slug)) return coll
     return {
@@ -31,7 +42,7 @@ export const searchPlugin = (): Plugin => (incomingConfig: Config): Config => {
         ...coll.hooks,
         afterChange: [
           ...(coll.hooks?.afterChange ?? []),
-          createAfterChangeHook(coll.slug),
+          createAfterChangeHook(coll.slug, { extraSkipKeys }),
         ],
         afterDelete: [
           ...(coll.hooks?.afterDelete ?? []),
@@ -46,7 +57,7 @@ export const searchPlugin = (): Plugin => (incomingConfig: Config): Config => {
     collections,
     endpoints: [
       ...(incomingConfig.endpoints ?? []),
-      reindexSearchEndpoint,
+      reindexSearchEndpoint({ extraSkipKeys }),
       backfillSearchUrlsEndpoint,
     ],
   }

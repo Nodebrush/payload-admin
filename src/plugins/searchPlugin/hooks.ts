@@ -36,6 +36,7 @@ async function writeIndexRows(
   payload: Payload,
   collection: string,
   docId: string | number,
+  options: { extraSkipKeys?: string[] } = {},
 ): Promise<void> {
   await ensureSearchSchema(payload)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -43,6 +44,8 @@ async function writeIndexRows(
 
   const localeCodes = getLocaleCodes(payload)
   const prefixLocale = isLocalizedProject(payload)
+  const collectionConfig = payload.config.collections.find((c) => c.slug === collection)
+  const fields = collectionConfig?.fields ?? []
 
   // Re-fetch with locale:'all' so we see the full locale map for localized fields.
   let fullDoc: Record<string, unknown> | null = null
@@ -68,7 +71,9 @@ async function writeIndexRows(
 
   if (!fullDoc) return
 
-  const { perLocale, title } = extractText(fullDoc, localeCodes)
+  const { perLocale, title } = extractText(fullDoc, localeCodes, fields, {
+    extraSkipKeys: options.extraSkipKeys,
+  })
 
   const upsert = `
     INSERT INTO search.search_index (collection, doc_id, locale, title, url, raw_text, tsv, updated_at)
@@ -120,13 +125,13 @@ async function removeIndexRows(
 }
 
 export const createAfterChangeHook =
-  (collection: string): CollectionAfterChangeHook =>
+  (collection: string, options: { extraSkipKeys?: string[] } = {}): CollectionAfterChangeHook =>
   async ({ doc, req }) => {
     try {
       const id = (doc as { id?: string | number }).id
       if (id === undefined || id === null) return doc
       // Don't block the write — run async but catch errors.
-      void writeIndexRows(req.payload, collection, id).catch((err) => {
+      void writeIndexRows(req.payload, collection, id, options).catch((err) => {
         req.payload.logger.error(`[search] index update failed for ${collection}/${id}: ${String(err)}`)
       })
     } catch (err) {
@@ -219,7 +224,10 @@ export async function backfillAll(payload: Payload): Promise<Record<string, numb
  * Full rebuild: wipes and re-indexes every non-system collection.
  * Returns count per collection.
  */
-export async function reindexAll(payload: Payload): Promise<Record<string, number>> {
+export async function reindexAll(
+  payload: Payload,
+  options: { extraSkipKeys?: string[] } = {},
+): Promise<Record<string, number>> {
   await ensureSearchSchema(payload)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const pool = (payload.db as any).pool
@@ -246,7 +254,7 @@ export async function reindexAll(payload: Payload): Promise<Record<string, numbe
         const id = (d as { id?: string | number }).id
         if (id === undefined || id === null) continue
         try {
-          await writeIndexRows(payload, coll.slug, id)
+          await writeIndexRows(payload, coll.slug, id, options)
           count++
         } catch (err) {
           payload.logger.error(
